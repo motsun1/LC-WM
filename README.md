@@ -1,6 +1,3 @@
-# LC-WM
-Doing the research of Latent Counterfactual World Model (LC-WM).
-
 ## 研究ハンドオーバー用サマリー  
 （このメモをそのまま新しいプロジェクトの README / Notion ページなどに貼り付ければ、すぐに議論を再開できます）
 
