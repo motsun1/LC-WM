@@ -23,9 +23,10 @@ outputs/
 results/
 
 # データや画像
-datasets/
-*.jpg
-*.png
+datasets/**/*.jpg
+datasets/**/*.png
+datasets/**/*.jpeg
+datasets/**/*.gif
 
 # IDE設定など
 .vscode/
