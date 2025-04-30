@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# 仮想環境
+.venv/
+env/
+*.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# 出力ファイルや実験ログ
+*.log
+*.ckpt
+*.pth
+*.pt
+*.h5
+*.npy
+*.npz
+runs/              # TensorBoardなどのログ
+outputs/
+results/
+
+# データや画像
+datasets/
+*.jpg
+*.png
+
+# IDE設定など
+.vscode/
+.DS_Store

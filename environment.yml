@@ -1,0 +1,25 @@
+name: lcwm
+channels:
+  - conda-forge
+  - defaults
+  - pytorch
+  - nvidia
+dependencies:
+  - python=3.9
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+  - tqdm
+  - scikit-learn
+  - seaborn
+  - jupyterlab
+  - pytorch
+  - torchvision
+  - torchaudio
+  - pytorch-cuda=12.4
+  - pip
+  - pip:
+      - captum
+      - xplique
+      - opencv-python
