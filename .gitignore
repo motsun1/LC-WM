@@ -28,6 +28,11 @@ datasets/**/*.png
 datasets/**/*.jpeg
 datasets/**/*.gif
 
+concepts/**/*.jpg
+concepts/**/*.png
+concepts/**/*.jpeg
+concepts/**/*.gif
+
 # IDE設定など
 .vscode/
 .DS_Store
