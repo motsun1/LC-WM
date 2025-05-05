@@ -53,7 +53,7 @@ def load_concept_images(concept_dir):
         device=device
     )
 
-concepts_root = "concepts"
+concepts_root = "datasets/waterbirds/concepts"
 
 # 概念データセットを準備
 concept_datasets = [

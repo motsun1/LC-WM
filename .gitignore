@@ -28,10 +28,7 @@ datasets/**/*.png
 datasets/**/*.jpeg
 datasets/**/*.gif
 
-concepts/**/*.jpg
-concepts/**/*.png
-concepts/**/*.jpeg
-concepts/**/*.gif
+datasets/waterbirds/waterbirds_episodes/**/*.json
 
 # IDE設定など
 .vscode/
