@@ -8,6 +8,10 @@ from glob import glob
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from npz_extraction import load_npz_files, extract_features
+from pathlib import Path
+from typing import List, Tuple
+from pydreamer.models.dreamer import Dreamer
+from pydreamer.tools import load_config, load_model
 
 class VisualTCAVLatents:
     def __init__(self, model_path=None, device='cpu'):
@@ -257,77 +261,106 @@ class VisualTCAVLatents:
         plt.savefig(save_path)
         plt.show()
 
+def load_latents(latents_dir: str) -> Tuple[np.ndarray, dict]:
+    """
+    抽出された潜在表現を読み込みます。
+    
+    Args:
+        latents_dir: 潜在表現が保存されているディレクトリ
+        
+    Returns:
+        latents: 潜在表現の配列
+        metadata: メタデータ
+    """
+    latents_files = list(Path(latents_dir).glob("*_latents.npz"))
+    all_latents = []
+    all_metadata = []
+    
+    for file in latents_files:
+        data = np.load(file)
+        all_latents.append(data['latents'])
+        if 'metadata' in data:
+            all_metadata.append(data['metadata'])
+    
+    return np.concatenate(all_latents, axis=0), all_metadata
+
+def compute_concept_direction(latents: np.ndarray, 
+                            positive_indices: List[int],
+                            negative_indices: List[int]) -> np.ndarray:
+    """
+    概念方向を計算します。
+    
+    Args:
+        latents: 潜在表現の配列
+        positive_indices: 正例のインデックス
+        negative_indices: 負例のインデックス
+        
+    Returns:
+        concept_direction: 概念方向のベクトル
+    """
+    positive_mean = np.mean(latents[positive_indices], axis=0)
+    negative_mean = np.mean(latents[negative_indices], axis=0)
+    concept_direction = positive_mean - negative_mean
+    return concept_direction / np.linalg.norm(concept_direction)
+
+def apply_concept_intervention(model: Dreamer,
+                             latents: np.ndarray,
+                             concept_direction: np.ndarray,
+                             alpha: float) -> torch.Tensor:
+    """
+    概念介入を適用します。
+    
+    Args:
+        model: Dreamerモデル
+        latents: 元の潜在表現
+        concept_direction: 概念方向のベクトル
+        alpha: 介入の強さ
+        
+    Returns:
+        intervened_images: 介入後の画像
+    """
+    device = next(model.parameters()).device
+    
+    # 潜在表現に介入を適用
+    intervened_latents = latents + alpha * concept_direction
+    intervened_latents = torch.from_numpy(intervened_latents).to(device)
+    
+    # デコーダーで画像を生成
+    with torch.no_grad():
+        intervened_images = model.wm.decoder.image(intervened_latents)
+    
+    return intervened_images
+
+def main():
+    # 設定の読み込み
+    config = load_config("pydreamer/config/waterbirds.yaml")
+    
+    # モデルの読み込み
+    model = load_model(config)
+    
+    # 潜在表現の読み込み
+    latents_dir = "extracted_latents"
+    latents, metadata = load_latents(latents_dir)
+    
+    # 背景が水の画像と陸の画像のインデックスを取得
+    # 注: 実際のインデックスはmetadataから取得する必要があります
+    water_indices = [i for i, m in enumerate(metadata) if m['background'] == 'water']
+    land_indices = [i for i, m in enumerate(metadata) if m['background'] == 'land']
+    
+    # 概念方向の計算
+    concept_direction = compute_concept_direction(latents, water_indices, land_indices)
+    
+    # 概念介入の適用
+    alpha = 1.0  # 介入の強さ
+    intervened_images = apply_concept_intervention(model, latents, concept_direction, alpha)
+    
+    # 結果の保存
+    output_dir = "intervened_images"
+    os.makedirs(output_dir, exist_ok=True)
+    
+    for i, img in enumerate(intervened_images):
+        img_np = img.cpu().numpy()
+        np.save(f"{output_dir}/intervened_{i}.npy", img_np)
+
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser(description='Dreamer V2潜在空間に対してVisual-TCAVを適用する')
-    parser.add_argument('--npz_pattern', type=str, default="d2_wm_closed/*/*.npz", 
-                       help='NPZファイルのglobパターン')
-    parser.add_argument('--use_dummy_data', action='store_true',
-                       help='NPZファイルがない場合にダミーデータを使用する')
-    parser.add_argument('--concept_a', type=str, default="background_land",
-                       help='概念Aの名前')
-    parser.add_argument('--concept_b', type=str, default="background_water",
-                       help='概念Bの名前')
-    parser.add_argument('--method', type=str, default="svm", choices=['svm', 'pca'],
-                       help='概念軸抽出の方法')
-    args = parser.parse_args()
-    
-    # VisualTCAVLatentsのインスタンス化
-    tcav = VisualTCAVLatents()
-    
-    try:
-        # 1. .npzファイルからデータ読み込み
-        print(f"Loading .npz files from pattern: {args.npz_pattern}")
-        data = load_npz_files(args.npz_pattern)
-        features = extract_features(data, feature_key='features')
-        
-        # ラベル情報
-        if 'label' in data:
-            labels = data['label']
-        else:
-            # ダミーラベル
-            labels = np.zeros(len(features))
-        
-        print(f"Successfully loaded {len(features)} feature vectors of dimension {features.shape[1]}")
-        
-    except Exception as e:
-        if args.use_dummy_data:
-            print(f"Error loading .npz files: {e}")
-            print("Using dummy data instead...")
-            # ダミーデータ作成
-            features = np.random.randn(1000, 512)  # 1000サンプル x 512次元
-            labels = np.random.randint(0, 2, size=1000)  # バイナリラベル
-            data = {
-                'image': np.random.rand(1000, 3, 64, 64),  # ダミー画像
-                'features': features
-            }
-        else:
-            raise e
-    
-    # 2. 概念ベクトルの構築
-    # 実データの代わりにダミーデータ
-    concept_a_features = np.random.randn(100, features.shape[1])
-    concept_b_features = np.random.randn(100, features.shape[1])
-    
-    # 3. SVM方向ベクトル取得
-    direction_vector = tcav.extract_concept_direction(
-        concept_a_features, concept_b_features, method=args.method)
-    
-    # 潜在空間の可視化
-    tcav.visualize_latent_space(
-        features, labels, direction_vector, 
-        title=f"Latent Space with {args.concept_a} vs {args.concept_b}")
-    
-    # 4. 反実潜在表現の生成
-    alpha_values = [-3.0, -1.5, 0.0, 1.5, 3.0]
-    z_cf_list = tcav.generate_counterfactual_latents(
-        features, direction_vector, alpha_values)
-    
-    # 5. 潜在表現からの画像生成
-    # 仮のデコード処理（実際にはDreamerのモデルを使用）
-    cf_images_list = tcav.decode_from_latent(None, z_cf_list)
-    
-    # 6. 反実画像の可視化
-    original_images = data['image'] if 'image' in data else np.random.rand(len(features), 3, 64, 64)
-    tcav.visualize_counterfactual_grid(
-        original_images, cf_images_list, alpha_values)
+    main()

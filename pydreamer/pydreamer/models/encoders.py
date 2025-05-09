@@ -20,6 +20,9 @@ class MultiEncoder(nn.Module):
         if conf.image_encoder == 'cnn':
             self.encoder_image = ConvEncoder(in_channels=encoder_channels,
                                              cnn_depth=conf.cnn_depth)
+        elif conf.image_encoder == 'cnn224':
+            self.encoder_image = ConvEncoder224(in_channels=encoder_channels,
+                                               cnn_depth=conf.cnn_depth)
         elif conf.image_encoder == 'dense':
             self.encoder_image = DenseEncoder(in_dim=conf.image_size * conf.image_size * encoder_channels,
                                               out_dim=256,
@@ -92,6 +95,48 @@ class ConvEncoder(nn.Module):
     def forward(self, x):
         x, bd = flatten_batch(x, 3)
         y = self.model(x)
+        y = unflatten_batch(y, bd)
+        return y
+
+
+class ConvEncoder224(nn.Module):
+    """
+    Encoder designed for 224x224 images, with 6 convolutional layers and final linear projection.
+    Input: 224x224 -> Output: 2048
+    """
+    def __init__(self, in_channels=3, cnn_depth=64, activation=nn.ELU):
+        super().__init__()
+        self.out_dim = 2048  # 固定出力次元
+        kernels = (4, 4, 4, 4, 4, 4)
+        stride = 2
+        padding = 1
+        d = cnn_depth
+        
+        # 224x224入力に対する6層の畳み込みエンコーダ
+        # 出力サイズの変化: 224->112->56->28->14->7->3
+        self.feature_extractor = nn.Sequential(
+            nn.Conv2d(in_channels, d, kernels[0], stride, padding),
+            activation(),
+            nn.Conv2d(d, d * 2, kernels[1], stride, padding),
+            activation(),
+            nn.Conv2d(d * 2, d * 4, kernels[2], stride, padding),
+            activation(),
+            nn.Conv2d(d * 4, d * 8, kernels[3], stride, padding),
+            activation(),
+            nn.Conv2d(d * 8, d * 16, kernels[4], stride, padding),
+            activation(),
+            nn.Conv2d(d * 16, d * 16, kernels[5], stride, padding),
+            activation(),
+            nn.Flatten()
+        )
+        
+        # 3x3x(16*d) = 9216次元 -> 2048次元に圧縮
+        self.dim_reducer = nn.Linear(3 * 3 * d * 16, self.out_dim)
+        
+    def forward(self, x):
+        x, bd = flatten_batch(x, 3)
+        features = self.feature_extractor(x)
+        y = self.dim_reducer(features)
         y = unflatten_batch(y, bd)
         return y
 

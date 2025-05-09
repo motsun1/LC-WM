@@ -426,7 +426,12 @@ def prepare_batch_npz(data: Dict[str, Tensor], take_b=999):
         if take_b < val.shape[1]:
             val = val[:, :take_b]
 
-        x = val.cpu().numpy()  # (T,B,*)
+        # numpy配列かPyTorchテンソルかを確認し、適切に処理
+        if isinstance(val, np.ndarray):
+            x = val  # 既にnumpy配列の場合はそのまま使用
+        else:
+            x = val.cpu().numpy()  # PyTorchテンソルをnumpyに変換
+
         if x.dtype in [np.float16, np.float64]:
             x = x.astype(np.float32)
 

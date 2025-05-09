@@ -23,50 +23,91 @@
 
 ---
 
-### 3. 8 週間スタータープラン
+### 3. 具体的な研究マイルストーン
 
-| 週 | マイルストーン | 成果物 |
-|----|----------------|--------|
-| 1–2 | DreamerV2 を dmc_walker で動作確認 | ログ & 生成 GIF  
-| 3–4 | Waterbirds で ResNet-50 ベースライン | テスト精度, 混同行列  
-| 5–6 | TCAV / Grad-CAM 計器化 | 概念スコア & ヒートマップ  
-| 7–8 | 潜在反実生成 (α版) → 再学習 | 反実画像セット, 指標改善グラフ  
+以下では **Phase 2 ～ Phase 3（約 6 か月）** を例に、研究マイルストーンを「タスク ⇄ 成果物 ⇄ 評価基準」でブレイクダウンしました。ガント表に落とし込めるよう **週番号** を振っています（週 0 ＝ 来週開始、Asia/Tokyo 時間基準）。GPU＝RTX 4090 ×1 を想定した所要時間も目安として記載しました。
 
 ---
 
-### 4. 成功判定の主要指標  
-| 指標 | 目標 |
-|------|------|
-| TCAV スコア（背景→前景） | 背景概念 下降、前景概念 上昇 ≥ +10 pt |
-| Grad-CAM IoU | +5 pt 以上向上 |
-| ImageNet-C mCE（Snow/Fog） | 20 % 以上低減 |
-| Waterbirds OOD テスト Acc | ベースライン比 +3 pt |
+## 0 – 準備フェーズ（Week 0）
+
+| タスク                                                  | 成果物              | 評価基準                         | 目安  |
+| ---------------------------------------------------- | ---------------- | ---------------------------- | --- |
+| ✅ Phase 1 の再現スクリプトを `scripts/phase1_baseline.sh` に集約 | Jupyter nb + シェル | Waterbirds TCAV Score 再現±2 % | 2 日 |
 
 ---
 
-### 5. 今後の拡張アイデア  
-1. **Diffusion WM** 版に置き換えて高精細反実を生成  
-2. 概念ボトルネック層をデコーダに挿入し，概念介入テストを実施  
-3. 潜在空間境界可視化ツールを OSS として公開 → 引用稼ぎ
+## Phase 2 ― Dreamer + 概念介入（Week 1-12）
+
+### Milestone 1 「MuDreamer-128」導入 (W1-W3)
+
+| タスク                                | 成果物                      | 評価基準                 | GPU 時間 |
+| ---------------------------------- | ------------------------ | -------------------- | ------ |
+| 1-1 画像前処理 128×128, 3ch             | `dataset/waterbirds128/` | 全 4,795 枚変換          | 0.5h   |
+| 1-2 `dreamer/models/mu_rssm.py` 実装 | Pull Request #m1         | unit-test 100 % pass | —      |
+| 1-3 学習 & 早期停止ロジック                  | `runs/m1_mu128/`         | ELBO ↑/plateau判定     | 24h    |
+| 1-4 Latent z → Linear Probe 分類     | notebook                 | Top-1 ≥ 80 %         | 1h     |
+
+### Milestone 2 「概念報酬設計」(W4-W6)
+
+| タスク                                      | 成果物               | 評価基準              | GPU 時間 |
+| ---------------------------------------- | ----------------- | ----------------- | ------ |
+| 2-1 TCAV バッチ評価 API (`concept_reward.py`) | モジュール             | 1エピソード < 0.3 s    | —      |
+| 2-2 `dreamer/agent.py` に報酬 Hook 追加       | PR #m2            | 追加コード < +300 行    | —      |
+| 2-3 RL 事前学習 (β=0.1)                      | `runs/m2_beta01/` | Grad-CAM IoU +5pp | 30h    |
+| 2-4 β スイープ (0.0-1.0, 5 点)                | CSV レポート          | β\* → 最大忠実度       | 60h    |
+
+### Milestone 3 「latent 介入 vs. CEILS 比較」(W7-W9)
+
+| タスク                                    | 成果物               | 評価基準               |
+| -------------------------------------- | ----------------- | ------------------ |
+| 3-1 CEILS 実装（既存 repo fork）             | `external/ceils/` | 再現例 MNIST OK       |
+| 3-2 共通 API (`intervene(z, dir, α)`) 整備 | PR #m3            | Dreamer/CEILS 両対応  |
+| 3-3 介入実験 500 本 × 3 α                   | `results/intv/`   | ΔConfDrop, ΔIoU 計算 |
+| 3-4 論文化図表 (Fig 3, Tab 2)               | `paper/figs/`     | 学会テンプレ合致           |
+
+### Milestone 4 「汎化評価 & アブレーション」(W10-W12)
+
+| タスク                           | 成果物                  | 評価基準   |
+| ----------------------------- | -------------------- | ------ |
+| 4-1 CelebA “Smiling/Not” で再学習 | `runs/celeba/`       | 同手順    |
+| 4-2 Ablation: ✗報酬, ✗RSSM, ✗γ  | `results/abl/`       | 全組合せ完了 |
+| 4-3 統合レポート草稿 (8 p)            | `paper/draft_v1.tex` | 5/末 まで |
 
 ---
 
-### 6. 主要リソースリンク  
-- DreamerV2（TF）: <https://github.com/danijar/dreamerv2>  
-- DreamerV2（PyTorch）: <https://github.com/jurgisp/pydreamer>  
-- Captum TCAV: <https://captum.ai/tutorials>  
-- xplique Explainability: <https://github.com/deel-ai/xplique>  
-- Waterbirds dataset (Kaggle): <https://www.kaggle.com/datasets>  
+## Phase 3 ― Diffusion 拡張 & 動画応用（Week 13-24）
+
+### Milestone 5 「Diffusion Prior 接続」(W13-W16)
+
+| タスク                           | 成果物                | 評価基準     |
+| ----------------------------- | ------------------ | -------- |
+| 5-1 Latent→Timestep 映写層実装     | `models/prior.py`  | FID ≤ 35 |
+| 5-2 Concept Slider (LoRA) 埋込み | `models/slider.py` | α 連続制御可  |
+
+### Milestone 6 「長期概念影響シミュレーション」(W17-W20)
+
+| タスク                              | 成果物                | 評価基準        |
+| -------------------------------- | ------------------ | ----------- |
+| 6-1 時系列介入 (32 step rollout)      | `results/long_cf/` | 画像崩壊率 < 5 % |
+| 6-2 Video Waterbirds (鳥飛翔シーン) 収集 | `dataset/vwb/`     | 400 クリップ    |
+
+### Milestone 7 「最終実験＋論文仕上げ」(W21-W24)
+
+| タスク                      | 成果物               | 評価基準      |
+| ------------------------ | ----------------- | --------- |
+| 7-1 全タスク再実行・seed=3 平均    | `results/final/`  | 結果確定      |
+| 7-2 論文最終稿 + 補足資料         | `paper/final.pdf` | 7/31 締切   |
+| 7-3 arXiv 投稿 & GitHub 公開 | DOI 取得            | CC-BY-4.0 |
 
 ---
 
-### 7. すぐ始めるチェックリスト  
-- [ ] `nvidia-smi` で GPU & CUDA を確認  
-- [ ] DreamerV2 を clone → 1 episode 軽く学習  
-- [ ] Waterbirds を DL → `datasets/` に配置  
-- [ ] Captum で TCAV notebook を実行し，背景/前景スコアが出ることを確認  
+## リスク & バックアップ
+
+| リスク            | 対策                                           |
+| -------------- | -------------------------------------------- |
+| Dreamer 学習が不安定 | ①ムービング平均 KL 制御 ②再構成レス版（MuDreamer）            |
+| 概念報酬がノイジー      | スムージング (EMA 0.9) + 報酬クリッピング                  |
+| GPU 枯渇         | 128×128 & mixed-precision, kolmogorov スケーリング |
 
 ---
-
-**このメモがあれば、次のチャットや共同ドキュメントに即時インポートして議論を継続できます。**  
-追加で必要な情報や詰まったポイントが出たら、いつでも質問してください。

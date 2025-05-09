@@ -4,6 +4,28 @@ import torch
 from glob import glob
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from pathlib import Path
+import sys
+from skimage.metrics import structural_similarity as ssim
+from skimage.metrics import peak_signal_noise_ratio as psnr
+
+# pydreamerのルートディレクトリをPythonパスに追加
+sys.path.append('pydreamer')
+
+from pydreamer.models.dreamer import Dreamer
+from pydreamer.tools import read_yamls
+from pydreamer.data import DataSequential
+from pydreamer.data import MlflowEpisodeRepository
+
+def load_config(config_path):
+    """設定ファイルを読み込む"""
+    configs = read_yamls('./config')
+    return configs[config_path]
+
+def load_checkpoint(model, checkpoint_path):
+    """チェックポイントを読み込む"""
+    checkpoint = torch.load(checkpoint_path)
+    model.load_state_dict(checkpoint['model_state_dict'])
 
 def load_npz_files(directory_pattern, label_filter=None, label_key='y_class', 
                   allow_pickle=True, max_files=None, batch_size=None):
@@ -130,18 +152,82 @@ def extract_features(data_dict, feature_key='features'):
     print(f"Extracted features shape: {features.shape}, dtype: {features.dtype}")
     return features
 
-def visualize_reconstructions(data_dict, num_samples=5, 
-                             orig_key='obs', recon_key='image_rec',
-                             is_hwc=True):
-    """元画像と再構成画像を可視化する
+def calculate_metrics(orig_images, recon_images, data_dict=None):
+    """画像の品質評価指標を計算する"""
+    # 形状の確認と調整
+    print(f"Original images shape before processing: {orig_images.shape}")
+    print(f"Reconstructed images shape before processing: {recon_images.shape}")
     
-    Args:
-        data_dict: データ辞書
-        num_samples: 表示するサンプル数
-        orig_key: 元画像のキー名（'obs', 'image'など）
-        recon_key: 再構成画像のキー名（'image_rec', 'recon'など）
-        is_hwc: 画像がHWC形式の場合True、CHW形式の場合False
-    """
+    # バッチ次元の処理
+    if len(orig_images.shape) == 5:  # (N, 1, H, W, C)の場合
+        orig_images = orig_images.reshape(-1, *orig_images.shape[2:])
+        recon_images = recon_images.reshape(-1, *recon_images.shape[2:])
+    
+    # グレースケールに変換
+    orig_gray = np.mean(orig_images, axis=-1)
+    recon_gray = np.mean(recon_images, axis=-1)
+    
+    # メトリクスの計算
+    mse = np.mean((orig_images - recon_images) ** 2)
+    psnr_value = psnr(orig_images, recon_images)
+    
+    # SSIMの計算（ウィンドウサイズを指定）
+    win_size = 3  # 最小の奇数サイズを使用
+    ssim_value = ssim(orig_gray, recon_gray, 
+                     data_range=255,
+                     win_size=win_size,
+                     channel_axis=None)
+    
+    print(f"\n画像品質評価指標:")
+    print(f"MSE: {mse:.4f}")
+    print(f"PSNR: {psnr_value:.2f} dB")
+    print(f"SSIM: {ssim_value:.4f}")
+    
+    # クラスごとの評価
+    if data_dict is not None and 'y_class' in data_dict:
+        # 全データの形状を確認
+        print(f"\n全データの形状:")
+        print(f"y_class shape: {data_dict['y_class'].shape}")
+        print(f"image shape: {data_dict['image'].shape}")
+        
+        # クラスごとの評価
+        classes = np.unique(data_dict['y_class'].squeeze())
+        print("\nクラスごとの評価:")
+        for cls in classes:
+            # クラスのマスクを作成
+            mask = data_dict['y_class'].squeeze() == cls
+            print(f"クラス {cls} のマスク形状: {mask.shape}")
+            
+            # クラスごとのデータを抽出
+            cls_orig = data_dict['image'][mask]
+            cls_recon = data_dict['image_rec'][mask]
+            
+            if len(cls_orig) > 0:  # クラスにサンプルが存在する場合
+                # バッチ次元の処理
+                if len(cls_orig.shape) == 5:
+                    cls_orig = cls_orig.reshape(-1, *cls_orig.shape[2:])
+                    cls_recon = cls_recon.reshape(-1, *cls_recon.shape[2:])
+                
+                cls_mse = np.mean((cls_orig - cls_recon) ** 2)
+                cls_psnr = psnr(cls_orig, cls_recon)
+                cls_ssim = ssim(np.mean(cls_orig, axis=-1), 
+                              np.mean(cls_recon, axis=-1),
+                              data_range=255,
+                              win_size=win_size,
+                              channel_axis=None)
+                
+                print(f"\nクラス {cls}:")
+                print(f"サンプル数: {len(cls_orig)}")
+                print(f"MSE: {cls_mse:.4f}")
+                print(f"PSNR: {cls_psnr:.2f} dB")
+                print(f"SSIM: {cls_ssim:.4f}")
+    
+    return mse, psnr_value, ssim_value
+
+def visualize_reconstructions(data_dict, num_samples=5, 
+                             orig_key='image', recon_key='image_rec',
+                             is_hwc=True):
+    """元画像と再構成画像を可視化する"""
     if orig_key not in data_dict or recon_key not in data_dict:
         print(f"Image keys not found. Available keys: {list(data_dict.keys())}")
         return
@@ -153,12 +239,20 @@ def visualize_reconstructions(data_dict, num_samples=5,
     print(f"Original images shape: {orig_images.shape}")
     print(f"Reconstructed images shape: {recon_images.shape}")
     
+    # バッチ次元の処理
+    if len(orig_images.shape) == 5:  # (N, 1, H, W, C)の場合
+        orig_images = orig_images.reshape(-1, *orig_images.shape[2:])
+        recon_images = recon_images.reshape(-1, *recon_images.shape[2:])
+    
+    # メトリクスの計算
+    calculate_metrics(orig_images, recon_images, data_dict)
+    
     fig, axes = plt.subplots(2, num_samples, figsize=(num_samples*3, 6))
     
     for i in range(num_samples):
         # 元画像
         img_orig = orig_images[i]
-        if not is_hwc and img_orig.shape[0] == 3:  # CHW形式の場合
+        if not is_hwc and img_orig.shape[0] == 3:
             img_orig = np.transpose(img_orig, (1, 2, 0))
         
         axes[0, i].imshow(img_orig)
@@ -167,7 +261,7 @@ def visualize_reconstructions(data_dict, num_samples=5,
         
         # 再構成画像
         img_recon = recon_images[i]
-        if not is_hwc and img_recon.shape[0] == 3:  # CHW形式の場合
+        if not is_hwc and img_recon.shape[0] == 3:
             img_recon = np.transpose(img_recon, (1, 2, 0))
         
         axes[1, i].imshow(img_recon)
@@ -178,19 +272,86 @@ def visualize_reconstructions(data_dict, num_samples=5,
     plt.savefig('reconstruction_samples.png')
     plt.show()
 
+def extract_latent_representations(config_path, checkpoint_path, output_dir):
+    # 設定の読み込み
+    config = load_config(config_path)
+    
+    # モデルの初期化
+    model = Dreamer(config)
+    model = model.to(config.device)
+    
+    # チェックポイントの読み込み
+    load_checkpoint(model, checkpoint_path)
+    model.eval()
+    
+    # データリポジトリとデータローダーの初期化
+    repository = MlflowEpisodeRepository(config)
+    dataloader = DataSequential(
+        repository=repository,
+        batch_length=config.batch_length,
+        batch_size=config.batch_size,
+        skip_first=True,
+        reload_interval=0,
+        buffer_size=0,
+        reset_interval=0,
+        allow_mid_reset=False
+    )
+    
+    # 出力ディレクトリの作成
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # 潜在表現の抽出
+    with torch.no_grad():
+        for batch_idx, batch in enumerate(tqdm(dataloader)):
+            # バッチデータの準備
+            obs = {k: v.to(config.device) for k, v in batch.items()}
+            
+            # 初期状態の設定
+            state = model.init_state(obs['image'].shape[1])
+            
+            # モデルの推論
+            features, out_state = model.forward(obs, state)
+            
+            # 潜在表現の保存
+            latent_repr = features.cpu().numpy()
+            np.save(os.path.join(output_dir, f'latent_repr_{batch_idx}.npy'), latent_repr)
+            
+            # メタデータの保存
+            metadata = {
+                'batch_idx': batch_idx,
+                'batch_size': obs['image'].shape[1],
+                'feature_dim': features.shape[-1]
+            }
+            np.save(os.path.join(output_dir, f'metadata_{batch_idx}.npy'), metadata)
+
+def main():
+    # 設定の読み込み
+    config = load_config("pydreamer/config/waterbirds.yaml")
+    
+    # モデルの読み込み
+    model = load_model(config)
+    
+    # データディレクトリの設定
+    data_dir = "../datasets/waterbirds/waterbirds_episodes/val"
+    output_dir = "extracted_latents"
+    
+    # 潜在表現の抽出
+    extract_latent_representations(config.path, 'checkpoints/dreamer.pt', output_dir)
+
 if __name__ == "__main__":
     # コマンドライン引数のパース
     import argparse
     parser = argparse.ArgumentParser(description='.npzファイルから特徴量を抽出し可視化する')
-    parser.add_argument('--pattern', type=str, default="d2_wm_closed/*/*.npz",
+    parser.add_argument('--pattern', type=str, 
+                      default="pydreamer/mlruns/0/b6e809862a7e423cabb986cc3e914288/artifacts/d2_wm_closed/*.npz",
                       help='glob形式のパターン')
     parser.add_argument('--label_filter', type=int, default=None,
                       help='特定のラベルだけを抽出する場合に指定')
     parser.add_argument('--label_key', type=str, default='y_class',
                       help='ラベルのキー名')
-    parser.add_argument('--feature_key', type=str, default='features',
+    parser.add_argument('--feature_key', type=str, default='image_rec',
                       help='特徴量のキー名')
-    parser.add_argument('--orig_key', type=str, default='obs',
+    parser.add_argument('--orig_key', type=str, default='image',
                       help='元画像のキー名')
     parser.add_argument('--recon_key', type=str, default='image_rec',
                       help='再構成画像のキー名')
@@ -222,3 +383,5 @@ if __name__ == "__main__":
                                is_hwc=(len(data[args.orig_key].shape) == 4 and data[args.orig_key].shape[-1] == 3))
     else:
         print("Reconstruction visualization skipped: Missing original or reconstructed images")
+    
+    main()

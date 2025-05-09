@@ -135,6 +135,27 @@ class RSSMCell(nn.Module):
         in_z = in_z * reset_mask
         B = action.shape[0]
 
+        # アクションの次元数が想定と異なる場合の処理を追加
+        expected_action_dim = self.a_mlp.weight.size(1)
+        
+        # action が1次元テンソルの場合の対応を追加
+        if action.dim() == 1:  # 1次元テンソルの場合（バッチサイズが1で、アクション次元も1）
+            action = action.unsqueeze(-1)  # (B,) -> (B,1)
+            actual_action_dim = 1
+        else:
+            actual_action_dim = action.size(1)
+        
+        if actual_action_dim != expected_action_dim:
+            print(f"Warning: Action dimension mismatch. Expected: {expected_action_dim}, Got: {actual_action_dim}")
+            # ゼロパディングまたは切り捨てでサイズを調整
+            if actual_action_dim < expected_action_dim:
+                # サイズが小さい場合はパディング
+                padding = torch.zeros(B, expected_action_dim - actual_action_dim, device=action.device)
+                action = torch.cat([action, padding], dim=1)
+            else:
+                # サイズが大きい場合は切り捨て
+                action = action[:, :expected_action_dim]
+
         x = self.z_mlp(in_z) + self.a_mlp(action)  # (B,H)
         x = self.in_norm(x)
         za = F.elu(x)
@@ -165,6 +186,28 @@ class RSSMCell(nn.Module):
             in_z = in_z * reset_mask
 
         B = action.shape[0]
+        
+        # アクションの次元数が想定と異なる場合の処理を追加
+        # 実行時に問題が発生する場合に備えて、次元サイズを調整
+        expected_action_dim = self.a_mlp.weight.size(1)
+        
+        # action が1次元テンソルの場合の対応を追加
+        if action.dim() == 1:  # 1次元テンソルの場合（バッチサイズが1で、アクション次元も1）
+            action = action.unsqueeze(-1)  # (B,) -> (B,1)
+            actual_action_dim = 1
+        else:
+            actual_action_dim = action.size(1)
+        
+        if actual_action_dim != expected_action_dim:
+            print(f"Warning: Action dimension mismatch. Expected: {expected_action_dim}, Got: {actual_action_dim}")
+            # ゼロパディングまたは切り捨てでサイズを調整
+            if actual_action_dim < expected_action_dim:
+                # サイズが小さい場合はパディング
+                padding = torch.zeros(B, expected_action_dim - actual_action_dim, device=action.device)
+                action = torch.cat([action, padding], dim=1)
+            else:
+                # サイズが大きい場合は切り捨て
+                action = action[:, :expected_action_dim]
 
         x = self.z_mlp(in_z) + self.a_mlp(action)  # (B,H)
         x = self.in_norm(x)

@@ -96,10 +96,11 @@ def create_waterbirds_episodes(data_dir, output_dir, split="train", max_episodes
         
         # エピソードデータ - PyDreamerの期待する形式に合わせる
         episode_data = {
-            "obs": img_hwc[np.newaxis, ...],      # (T, H, W, C) = (1, 224, 224, 3)
-            "act": np.zeros((1, 1), dtype=np.float32),  # 学習では使用しない簡略化した形式
-            "rew": np.zeros(1, dtype=np.float32),       # 学習では使用しない簡略化した形式
-            "done": np.array([True]),             # エピソード終了フラグ
+            "image": img_hwc[np.newaxis, ...],    # (T, H, W, C) = (1, 224, 224, 3)
+            "action": np.zeros((1, 1), dtype=np.float32),  # 学習では使用しない簡略化した形式
+            "reward": np.zeros(1, dtype=np.float32),       # 学習では使用しない簡略化した形式
+            "reset": np.array([True]),            # エピソード開始フラグ
+            "terminal": np.array([True]),         # エピソード終了フラグ
             # メタデータを埋め込む場合（オプション）
             # "metadata": json.dumps(metadata_dict)
         }

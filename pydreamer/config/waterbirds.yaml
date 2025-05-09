@@ -1,24 +1,41 @@
 waterbirds:
-  offline_data_dir: "../datasets/waterbirds_episodes/train"
-  offline_eval_dir: "../datasets/waterbirds_episodes/val"
-  offline_test_dir: "../datasets/waterbirds_episodes/test"
-  offline_prefill_dir: "../datasets/waterbirds_episodes/prefill"  # 必要に応じて設定
+  offline_data_dir: "../datasets/waterbirds/waterbirds_episodes/train"
+  offline_eval_dir: "../datasets/waterbirds/waterbirds_episodes/val"
+  offline_test_dir: "../datasets/waterbirds/waterbirds_episodes/test"
+  offline_prefill_dir: "../datasets/waterbirds/waterbirds_episodes/prefill"  # 必要に応じて設定
   image_size: 224  # ResNet入力サイズに合わせる
-  action_dim: 1    # 1 にして常に 0 を feed；2 クラス分類とは無関係
-  use_policy: false   # Actor/Critic を作らない
-  use_value:  false   # false にしないと「報酬が常に 0」で value ネットが発散する恐れ
-  cnn_depth: 64    # 画像の複雑さに合わせて増加
-  deter_dim: 1024  # 決定的状態の次元
-  stoch_dim: 32    # 確率的状態の次元
+  action_dim: 1
+  use_policy: false
+  use_value: false
+  cnn_depth: 64    # 画像の複雑さに合わせて設定
+  deter_dim: 200
+  stoch_dim: 32
+  stoch_discrete: 32
   n_steps: 50000   # 学習ステップ数
   device: "cuda"   # GPU使用
-  batch_size: 32   # バッチサイズ
+  batch_size: 32
   batch_length: 1  # 静止画像なので1
-  image_encoder: cnn
-  image_decoder: cnn
+  image_encoder: cnn224  # 224x224画像用のエンコーダーを使用
+  image_decoder: cnn224  # 224x224画像用のデコーダーを使用
   clip_rewards: tanh  # 報酬のクリッピング方法を指定
   buffer_size_offline: 10000000  # オフラインバッファサイズを明示的に設定
-  # generatorの設定（オフラインデータのみ使用するため）
+  imag_horizon: 0
+  # Disable Actor-Critic completely
+  use_actor_critic: false
+  use_actor: false
+  use_critic: false
+  # Disable all policy-related settings
+  actor_grad: null
+  actor_dist: null
+  entropy: 0
+  gamma: 0
+  lambda_gae: 0
+  # World Model settings
+  train_steps: 1000000
+  learning_rate: 0.0001
+  grad_clip: 100.0
+  iwae_samples: 1
+  # Data settings
   generator_workers: 0
   generator_workers_train: 0
   generator_workers_eval: 0

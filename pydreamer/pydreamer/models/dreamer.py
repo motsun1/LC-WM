@@ -129,7 +129,6 @@ class Dreamer(nn.Module):
         I, H = iwae_samples, imag_horizon
 
         # World model
-
         loss_model, features, states, out_state, metrics, tensors = \
             self.wm.training_step(obs,
                                   in_state,
@@ -138,30 +137,34 @@ class Dreamer(nn.Module):
                                   do_image_pred=do_image_pred)
 
         # Map probe
-
         features_probe = features.detach() if not self.probe_gradients else features
         loss_probe, metrics_probe, tensors_probe = self.probe_model.training_step(features_probe, obs)
         metrics.update(**metrics_probe)
         tensors.update(**tensors_probe)
 
-        # Policy
-
-        in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
-        # Note features_dream includes the starting "real" features at features_dream[0]
-        features_dream, actions_dream, rewards_dream, terminals_dream = \
-            self.dream(in_state_dream, H, self.ac.actor_grad == 'dynamics')  # (H+1,TBI,D)
-        (loss_actor, loss_critic), metrics_ac, tensors_ac = \
-            self.ac.training_step(features_dream.detach(),
-                                  actions_dream.detach(),
-                                  rewards_dream.mean.detach(),
-                                  terminals_dream.mean.detach())
-        metrics.update(**metrics_ac)
-        tensors.update(policy_value=unflatten_batch(tensors_ac['value'][0], (T, B, I)).mean(-1))
+        # Policy (skip if imag_horizon is 0)
+        if imag_horizon > 0:
+            in_state_dream: StateB = map_structure(states, lambda x: flatten_batch(x.detach())[0])  # type: ignore  # (T,B,I) => (TBI)
+            # Note features_dream includes the starting "real" features at features_dream[0]
+            features_dream, actions_dream, rewards_dream, terminals_dream = \
+                self.dream(in_state_dream, H, self.ac.actor_grad == 'dynamics')  # (H+1,TBI,D)
+            (loss_actor, loss_critic), metrics_ac, tensors_ac = \
+                self.ac.training_step(features_dream.detach(),
+                                      actions_dream.detach(),
+                                      rewards_dream.mean.detach(),
+                                      terminals_dream.mean.detach())
+            metrics.update(**metrics_ac)
+            tensors.update(policy_value=unflatten_batch(tensors_ac['value'][0], (T, B, I)).mean(-1))
+        else:
+            # Set dummy values for losses when skipping Actor-Critic
+            # 勾配を持つダミーの損失を作成
+            dummy_tensor = torch.zeros(1, device=loss_model.device, requires_grad=True)
+            loss_actor = dummy_tensor * 0.0  # 勾配を持つゼロ損失
+            loss_critic = dummy_tensor * 0.0  # 勾配を持つゼロ損失
 
         # Dream for a log sample.
-
         dream_tensors = {}
-        if do_dream_tensors and self.wm.decoder.image is not None:
+        if do_dream_tensors and self.wm.decoder.image is not None and T > 1 and self.imag_horizon > 0:
             with torch.no_grad():  # careful not to invoke modules first time under no_grad (https://github.com/pytorch/pytorch/issues/60164)
                 # The reason we don't just take real features_dream is because it's really big (H*T*B*I),
                 # and here for inspection purposes we only dream from first step, so it's (H*B).
@@ -190,6 +193,25 @@ class Dreamer(nn.Module):
         actions = []
         state = in_state
         self.wm.requires_grad_(False)  # Prevent dynamics gradiens from affecting world model
+
+        # imag_horizonが0の場合に対応
+        if imag_horizon <= 0:
+            # 少なくとも1つのフィーチャーを追加（現在の状態から）
+            feature = self.wm.core.to_feature(*state)
+            features.append(feature)
+            features = torch.stack(features)  # (H+1,TBI,D)
+            
+            # 空のアクションテンソルを作成（サイズ0の次元を持つ）
+            device = feature.device
+            B = feature.shape[0]  # バッチサイズ
+            action_shape = self.ac.actor.out_dim  # アクション次元数
+            actions = torch.zeros((0, B, action_shape), device=device)  # (0,B,A)
+            
+            rewards = self.wm.decoder.reward.forward(features)      # (H+1,TBI)
+            terminals = self.wm.decoder.terminal.forward(features)  # (H+1,TBI)
+            
+            self.wm.requires_grad_(True)
+            return features, actions, rewards, terminals
 
         for i in range(imag_horizon):
             feature = self.wm.core.to_feature(*state)
@@ -322,6 +344,9 @@ class WorldModel(nn.Module):
         # Decoder
 
         loss_reconstr, metrics, tensors = self.decoder.training_step(features, obs)
+        
+        # 潜在ベクトル (features) の保存
+        tensors.update(latent=features.detach().cpu().numpy())
 
         # KL loss
 

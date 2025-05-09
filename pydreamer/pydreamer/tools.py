@@ -126,6 +126,11 @@ def mlflow_log_npz(data: dict, name, subdir=None, verbose=False, repository: Art
     import mlflow
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / name
+        
+        # 潜在ベクトルが存在する場合、保存
+        if 'latent' in data:
+            print(f"Saving latent space to {name}")
+        
         save_npz(data, path)
         mlflow_log_artifact(path, subdir, verbose, repository)
 
